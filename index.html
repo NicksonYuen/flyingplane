@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>飛機食金幣 Plane Coins</title>
+<meta name="theme-color" content="#BFE3FF">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="飛機食金幣">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: one full-screen sky (the canvas) with the score on top, plus a start card and a game-over card. */
+:root{
+  --sky:#BFE3FF;
+  --surface:#FFFFFF;
+  --ink:#10213A;
+  --muted:#5A6A80;
+  --gold:#FFC93C;
+  --gold-dark:#B9800F;
+  --good:#1E9A53;
+  --bad:#D2433F;
+  --font:"Atkinson Hyperlegible","PingFang HK","Heiti TC","Microsoft JhengHei",system-ui,sans-serif;
+  color-scheme:light;
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--sky);color:var(--ink);font-family:var(--font);font-size:16px;margin:0;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overflow:hidden;
+  overscroll-behavior:none;-webkit-touch-callout:none}
+button{font-family:inherit;color:inherit;touch-action:manipulation;cursor:pointer}
+button:focus-visible{outline:4px solid var(--ink);outline-offset:3px}
+canvas#sky{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+/* score, top left */
+.hud{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:calc(12px + env(safe-area-inset-left,0px));
+  display:flex;flex-direction:column;gap:4px;pointer-events:none}
+.score{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.88);border-radius:999px;
+  padding:6px 18px 6px 8px;box-shadow:0 2px 8px rgba(16,33,58,.12)}
+.coinIcon{width:40px;height:40px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#FFF1B0,var(--gold) 55%,#E9A91C);
+  border:3px solid var(--gold-dark);flex:none}
+.score b{font-size:2.2rem;line-height:1;font-variant-numeric:tabular-nums;min-width:1.2em}
+.score.pop{animation:pop .25s ease-out}
+@keyframes pop{50%{transform:scale(1.15)}}
+.best{font-size:.95rem;color:var(--muted);background:rgba(255,255,255,.7);border-radius:999px;padding:2px 12px;align-self:flex-start}
+
+.pauseBtn{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));
+  width:56px;height:56px;border-radius:50%;border:0;background:rgba(255,255,255,.88);font-size:1.4rem;font-weight:700;
+  box-shadow:0 2px 8px rgba(16,33,58,.12)}
+
+/* cards (start, pause, game over) */
+.veil{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(16,33,58,.25)}
+.card{background:var(--surface);border-radius:28px;padding:28px 24px;width:min(460px,100%);text-align:center;
+  box-shadow:0 10px 40px rgba(16,33,58,.25);display:flex;flex-direction:column;gap:14px;align-items:center}
+.card h1{margin:0;font-size:2.4rem}
+.card h2{margin:0;font-size:2rem}
+.card p{margin:0;color:var(--muted);line-height:1.45}
+.big{font-size:1.6rem;font-weight:700;border:0;border-radius:999px;padding:16px 40px;background:var(--good);color:#fff;min-width:220px}
+.big:disabled{opacity:.45}
+.small{font-size:1.05rem;border:2px solid #C8D2E0;border-radius:999px;padding:10px 24px;background:#fff}
+.row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.final{font-size:4rem;font-weight:700;line-height:1;color:var(--gold-dark)}
+.voice{font-size:.9rem}
+.voice.warn{color:var(--bad)}
+.timer{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.88);border-radius:999px;padding:6px 16px;
+  box-shadow:0 2px 8px rgba(16,33,58,.12);pointer-events:none}
+.timer span{font-size:1.4rem}
+.timer b{font-size:2rem;line-height:1;font-variant-numeric:tabular-nums;min-width:1.3em;text-align:center}
+.timer i{display:block;width:90px;height:10px;border-radius:5px;background:#DCE6F2;overflow:hidden}
+.timer em{display:block;height:100%;width:100%;background:var(--good);border-radius:5px}
+.timer.hard b{color:var(--bad)}
+.timer.hard em{background:var(--bad)}
+@media (max-width:560px){.timer i{display:none}}  /* narrow phone: keep only the number so it fits beside the score */
+.banner{position:fixed;left:0;right:0;top:38%;text-align:center;font-size:4rem;font-weight:700;color:var(--bad);
+  pointer-events:none;text-shadow:0 3px 0 #fff,0 0 18px #fff}
+.banner.show{animation:bannerIn 1.6s ease-out forwards}
+@keyframes bannerIn{0%{transform:scale(.4);opacity:0}15%{transform:scale(1.15);opacity:1}30%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
+.hint{position:fixed;left:0;right:0;bottom:22%;text-align:center;font-size:1.6rem;font-weight:700;pointer-events:none;
+  text-shadow:0 2px 0 #fff,0 0 12px #fff}
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<div class="hud" id="hud" hidden>
+  <div class="score" id="score"><span class="coinIcon"></span><b id="scoreNum">0</b></div>
+  <div class="best" id="bestHud">最高分 0</div>
+</div>
+<button class="pauseBtn" id="pauseBtn" aria-label="暫停" hidden>II</button>
+<div class="timer" id="timer" hidden><span>⏱</span><b id="timeNum">30</b><i><em id="timeBar"></em></i></div>
+<div class="banner" id="banner" hidden>加速！</div>
+<div class="hint" id="hint" hidden>用手指拖住架飛機</div>
+
+<div class="veil" id="home">
+  <div class="card">
+    <h1>飛機食金幣</h1>
+    <p>用手指拖住架飛機，食金幣，避開炸彈。每次玩30秒，最後10秒會加速！</p>
+    <p id="bestHome">最高分：0</p>
+    <button class="big" id="startBtn">開始</button>
+    <div class="row"><button class="small" id="testBtn">試聲</button></div>
+    <p class="voice" id="voiceStatus">正在檢查廣東話聲音…</p>
+  </div>
+</div>
+
+<div class="veil" id="paused" hidden>
+  <div class="card">
+    <h2>暫停咗</h2>
+    <button class="big" id="resumeBtn">繼續</button>
+    <button class="small" id="quitBtn">返主頁</button>
+  </div>
+</div>
+
+<div class="veil" id="over" hidden>
+  <div class="card">
+    <h2 id="overTitle">中咗炸彈！</h2>
+    <p>你有</p>
+    <div class="final" id="finalScore">0</div>
+    <p id="overBest">最高分：0</p>
+    <button class="big" id="againBtn" disabled>再嚟過</button>
+    <button class="small" id="homeBtn">返主頁</button>
+  </div>
+</div>
+
+<script>
+/* ---------- settings you can change ---------- */
+const GAME_SECONDS = 30;          /* each game lasts this long */
+const HARD_SECONDS_LEFT = 10;     /* when this many seconds are left, it gets harder */
+/* normal part */
+const SPEED = 2.6;                /* how fast things fly past (screen units per second) */
+const BOMB_GAP = 2.0;             /* seconds between bombs */
+const COIN_WEIGHTS = [5,4,3,2,1]; /* coins 1 to 5; how often each appears (1 is most common) */
+/* harder part */
+const HARD_SPEED = 4.0;
+const HARD_BOMB_GAP = 0.85;
+const HARD_COIN_WEIGHTS = [1,1,2,2,2,2,2,2,2,2]; /* coins 1 to 10 */
+const SAY_START = '用手指拖住架飛機，食金幣，小心炸彈呀！';
+const SAY_HARD = '加速啦！';
+const SAY_BOOM = n => '嘭！中咗炸彈！你有' + n + '分。再嚟過啦！';
+const SAY_TIME = n => '時間到！你有' + n + '分，好叻呀！';
+const SAY_RECORD = n => '你破咗紀錄，有' + n + '分，好叻呀！';
+
+/* ---------- saved data (this iPad only) ---------- */
+const BEST_KEY = 'pc_best';
+function loadBest(){try{return +localStorage.getItem(BEST_KEY)||0}catch(e){return 0}}
+function saveBest(n){try{localStorage.setItem(BEST_KEY,String(n))}catch(e){}}
+let best = loadBest();
+
+const $ = id => document.getElementById(id);
+
+/* ---------- audio effects ---------- */
+let ac=null;
+function audio(){
+  if(!ac){const C=window.AudioContext||window.webkitAudioContext;if(C)ac=new C()}
+  if(ac&&ac.state==='suspended')ac.resume();
+  return ac;
+}
+function tone(f,start,dur,type,vol,endF){
+  const a=audio();if(!a)return;
+  const t=a.currentTime+start,o=a.createOscillator(),g=a.createGain();
+  o.type=type||'sine';o.frequency.setValueAtTime(f,t);
+  if(endF)o.frequency.exponentialRampToValueAtTime(endF,t+dur);
+  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol||0.25,t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+dur+0.05);
+}
+function noise(dur,vol){
+  const a=audio();if(!a)return;
+  const len=Math.floor(a.sampleRate*dur),buf=a.createBuffer(1,len,a.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2);
+  const s=a.createBufferSource(),g=a.createGain(),f=a.createBiquadFilter();
+  f.type='lowpass';f.frequency.value=900;g.gain.value=vol;
+  s.buffer=buf;s.connect(f);f.connect(g);g.connect(a.destination);s.start();
+}
+const sfx={
+  coin(n){const f=660+n*90;tone(f,0,.12,'triangle',.25);tone(f*1.5,.07,.2,'triangle',.25)},
+  boom(){noise(1.1,.9);tone(120,0,.6,'sine',.4,40)},
+  start(){[523,659,784].forEach((f,i)=>tone(f,i*.1,.25,'triangle',.25))},
+  hard(){[392,523,659,784,1047].forEach((f,i)=>tone(f,i*.07,.2,'square',.12))}
+};
+
+/* ---------- Cantonese speech ---------- */
+let voice=null,speechId=0;
+const hasTTS='speechSynthesis' in window;
+function pickVoice(){
+  if(!hasTTS)return statusVoice();
+  const vs=speechSynthesis.getVoices();
+  voice=vs.find(v=>/zh[-_]HK/i.test(v.lang))||vs.find(v=>/yue/i.test(v.lang))||vs.find(v=>/Sinji|Cantonese|粵|廣東/i.test(v.name))||null;
+  statusVoice(vs.length>0);
+}
+function statusVoice(loaded){
+  const el=$('voiceStatus');
+  if(!hasTTS){el.textContent='呢部機唔支援語音朗讀，遊戲只會有音效。';el.className='voice warn';return}
+  if(voice){el.textContent='廣東話聲音：'+voice.name;el.className='voice';return}
+  if(loaded===false)return;
+  el.innerHTML='搵唔到廣東話聲音。iPad：設定 › 輔助使用 › 朗讀內容 › 聲音 › 中文（香港），下載「Sinji」。';
+  el.className='voice warn';
+}
+if(hasTTS){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;setTimeout(pickVoice,800)}
+function stopSpeech(){speechId++;if(hasTTS)speechSynthesis.cancel()}
+function say(text,onend){
+  const id=++speechId;
+  let done=false;
+  const fin=()=>{if(done||id!==speechId)return;done=true;onend&&onend()};
+  if(!hasTTS){setTimeout(fin,600);return}
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='zh-HK';if(voice)u.voice=voice;u.rate=.85;u.pitch=1.05;
+  u.onend=fin;u.onerror=fin;
+  setTimeout(()=>{if(id===speechId)speechSynthesis.speak(u)},60);
+  setTimeout(fin,2000+text.length*420); /* safety net if the browser never fires onend */
+}
+
+/* ---------- canvas and sizes ---------- */
+const cv=$('sky'),ctx=cv.getContext('2d');
+let W=0,H=0,U=0,groundY=0,topY=0;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const oldW=W,oldH=H;
+  W=innerWidth;H=innerHeight;
+  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  U=Math.min(W,H)/10;            /* one "screen unit": everything is sized from this */
+  groundY=H-Math.max(U*0.9,50);  /* top of the grass */
+  topY=U*1.4;                    /* coins and bombs stay below the score */
+  if(oldW&&plane){plane.x=plane.x/oldW*W;plane.y=plane.y/oldH*H}
+  clampPlane();
+}
+
+/* ---------- game state ---------- */
+/* state: home | ready (instruction playing) | play | paused | boom | over */
+let state='home',score=0,elapsed=0,scroll=0;
+let plane=null,things=[],bits=[],floats=[],clouds=[];
+let coinTimer=0,bombTimer=0,shake=0,boomAt=0;
+
+function newPlane(){plane={x:W*0.25,y:(topY+groundY)/2,vy:0,tilt:0,alive:true};}
+function planeLen(){return U*2}
+function clampPlane(){
+  if(!plane)return;
+  const L=planeLen();
+  plane.x=Math.max(L*0.55,Math.min(W*0.78,plane.x));
+  plane.y=Math.max(L*0.25,Math.min(groundY-L*0.2,plane.y));
+}
+function makeClouds(){
+  clouds=[];
+  for(let i=0;i<6;i++)clouds.push({x:Math.random()*W,y:topY*0.6+Math.random()*(groundY-topY)*0.7,s:0.7+Math.random()*0.8});
+}
+
+function isHard(){return elapsed>=GAME_SECONDS-HARD_SECONDS_LEFT}
+function speed(){return (isHard()?HARD_SPEED:SPEED)*U}
+function bombGap(){return isHard()?HARD_BOMB_GAP:BOMB_GAP}
+function coinRadius(n){return U*(0.34+Math.min(n,5)*0.05+Math.max(0,n-5)*0.025)}
+function bombRadius(){return U*0.42}
+function pickNumber(){
+  const w=isHard()?HARD_COIN_WEIGHTS:COIN_WEIGHTS;
+  const total=w.reduce((a,b)=>a+b,0);
+  let r=Math.random()*total;
+  for(let i=0;i<w.length;i++){r-=w[i];if(r<0)return i+1}
+  return 1;
+}
+/* find a height for a new coin or bomb that does not overlap things just coming in */
+function freeY(r){
+  for(let tries=0;tries<10;tries++){
+    const y=topY+r+Math.random()*(groundY-topY-2*r);
+    const ok=things.every(t=>t.x<W-U*2.5||Math.abs(t.y-y)>t.r+r+U*0.3);
+    if(ok)return y;
+  }
+  return null;
+}
+function spawnCoins(){
+  const row=Math.random()<0.3?3:1;   /* sometimes a little row of 3 coins */
+  const n=pickNumber(),r=coinRadius(n);
+  const y=freeY(r);if(y===null)return;
+  for(let i=0;i<row;i++)things.push({kind:'coin',n,r,x:W+r+i*r*2.6,y,y0:y,ph:Math.random()*6});
+}
+function spawnBomb(){
+  const r=bombRadius(),y=freeY(r);if(y===null)return;
+  const wavy=isHard()&&Math.random()<0.4;  /* some bombs move up and down in the harder part */
+  things.push({kind:'bomb',r,x:W+r,y,y0:y,ph:Math.random()*6,wavy,amp:U*(0.6+Math.random()*0.8)});
+}
+
+/* ---------- drawing ---------- */
+function drawSky(){
+  const g=ctx.createLinearGradient(0,0,0,groundY);
+  g.addColorStop(0,'#8FCBFF');g.addColorStop(1,'#E3F3FF');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,groundY);
+  for(const c of clouds)drawCloud(c.x,c.y,U*c.s);
+  /* grass with a dark line on top, like the drawing */
+  ctx.fillStyle='#7BC96F';ctx.fillRect(0,groundY,W,H-groundY);
+  ctx.strokeStyle='#3E7D3A';ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(W,groundY);ctx.stroke();
+  ctx.strokeStyle='rgba(62,125,58,.55)';ctx.lineWidth=2;
+  const gap=U*1.6,off=scroll%gap;
+  for(let x=-off;x<W+gap;x+=gap){
+    const y=groundY+(H-groundY)*0.45;
+    ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+gap*0.35,y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x+gap*0.6,y+(H-groundY)*0.25);ctx.lineTo(x+gap*0.85,y+(H-groundY)*0.25);ctx.stroke();
+  }
+}
+function drawCloud(x,y,s){
+  ctx.fillStyle='rgba(255,255,255,.9)';
+  ctx.beginPath();
+  ctx.arc(x,y,s*0.5,0,7);ctx.arc(x+s*0.55,y-s*0.2,s*0.6,0,7);ctx.arc(x+s*1.15,y,s*0.45,0,7);
+  ctx.fill();
+  ctx.fillRect(x,y-s*0.1,s*1.15,s*0.5);
+}
+
+/* the plane, pointing right: long body with a row of windows, big wings above and below (from the drawing) */
+function drawPlane(c,x,y,L,tilt){
+  const h=L*0.3;
+  c.save();c.translate(x,y);c.rotate(tilt||0);
+  c.lineJoin='round';c.lineCap='round';
+  c.strokeStyle='#10213A';c.lineWidth=Math.max(2,L*0.025);
+  /* upper wing (behind the body) */
+  c.fillStyle='#FF8A3D';
+  c.beginPath();c.ellipse(-L*0.02,-h*0.6,L*0.1,L*0.3,0,0,7);c.fill();c.stroke();
+  /* tail fin */
+  c.fillStyle='#D2433F';
+  c.beginPath();c.moveTo(-L*0.46,-h*0.2);c.lineTo(-L*0.5,-h*1.15);c.lineTo(-L*0.36,-h*1.15);c.lineTo(-L*0.24,-h*0.3);c.closePath();c.fill();c.stroke();
+  /* body */
+  c.fillStyle='#FFFFFF';
+  c.beginPath();
+  c.moveTo(-L*0.4,-h/2);c.lineTo(L*0.3,-h/2);
+  c.quadraticCurveTo(L*0.52,-h/2,L*0.52,h*0.05);
+  c.quadraticCurveTo(L*0.5,h/2,L*0.3,h/2);
+  c.lineTo(-L*0.4,h/2);
+  c.quadraticCurveTo(-L*0.52,h/2,-L*0.52,0);
+  c.quadraticCurveTo(-L*0.52,-h/2,-L*0.4,-h/2);
+  c.closePath();c.fill();
+  /* blue stripe along the bottom */
+  c.save();c.clip();
+  c.fillStyle='#2F6FD6';c.fillRect(-L*0.6,h*0.18,L*1.2,h*0.4);
+  c.restore();
+  c.stroke();
+  /* row of windows */
+  c.fillStyle='#A9DBFF';
+  const wx=-L*0.02,ww=L*0.38,wy=-h*0.34,wh=h*0.34;
+  c.fillRect(wx,wy,ww,wh);c.strokeRect(wx,wy,ww,wh);
+  c.beginPath();
+  for(let i=1;i<5;i++){c.moveTo(wx+ww*i/5,wy);c.lineTo(wx+ww*i/5,wy+wh)}
+  c.stroke();
+  /* cockpit window at the nose */
+  c.beginPath();c.moveTo(L*0.4,-h*0.36);c.quadraticCurveTo(L*0.49,-h*0.3,L*0.5,-h*0.05);c.lineTo(L*0.4,-h*0.05);c.closePath();c.fill();c.stroke();
+  /* lower wing (in front of the body) */
+  c.fillStyle='#FF8A3D';
+  c.beginPath();c.ellipse(-L*0.02,h*0.75,L*0.1,L*0.3,0,0,7);c.fill();c.stroke();
+  c.restore();
+}
+
+function drawCoin(c,x,y,r,n){
+  c.save();c.translate(x,y);
+  const g=c.createRadialGradient(-r*0.35,-r*0.4,r*0.1,0,0,r);
+  /* coins above 5 are a deeper orange gold so they stand out */
+  if(n>5){g.addColorStop(0,'#FFE3B0');g.addColorStop(0.55,'#FF9F2E');g.addColorStop(1,'#E0701A')}
+  else{g.addColorStop(0,'#FFF4C2');g.addColorStop(0.55,'#FFC93C');g.addColorStop(1,'#E9A91C')}
+  c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,7);c.fill();
+  c.strokeStyle='#B9800F';c.lineWidth=Math.max(2,r*0.1);c.stroke();
+  c.beginPath();c.arc(0,0,r*0.78,0,7);c.lineWidth=Math.max(1,r*0.04);c.stroke();
+  c.fillStyle='#7A4E00';
+  c.font='700 '+Math.round(r*(n>9?0.9:1.15))+'px "Atkinson Hyperlegible",system-ui,sans-serif';
+  c.textAlign='center';c.textBaseline='middle';
+  c.fillText(String(n),0,r*0.06);
+  c.restore();
+}
+
+function drawBomb(c,x,y,r,t){
+  c.save();c.translate(x,y);
+  /* fuse */
+  c.strokeStyle='#8A6A3B';c.lineWidth=Math.max(2,r*0.12);c.lineCap='round';
+  c.beginPath();c.moveTo(r*0.45,-r*0.8);c.quadraticCurveTo(r*0.7,-r*1.35,r*1.05,-r*1.25);c.stroke();
+  /* spark, flickering */
+  const s=r*(0.28+0.1*Math.sin(t*30));
+  c.fillStyle=Math.sin(t*25)>0?'#FFD23F':'#FF7A2F';
+  c.beginPath();
+  for(let i=0;i<10;i++){const a=i*Math.PI/5,rr=i%2?s*0.45:s;c.lineTo(r*1.05+Math.cos(a)*rr,-r*1.25+Math.sin(a)*rr)}
+  c.closePath();c.fill();
+  /* cap */
+  c.fillStyle='#4A5568';c.save();c.rotate(0.5);c.fillRect(-r*0.25,-r*1.08,r*0.5,r*0.3);c.restore();
+  /* ball */
+  const g=c.createRadialGradient(-r*0.35,-r*0.35,r*0.1,0,0,r);
+  g.addColorStop(0,'#5B6B82');g.addColorStop(1,'#141B26');
+  c.fillStyle=g;c.beginPath();c.arc(0,0,r,0,7);c.fill();
+  c.fillStyle='rgba(255,255,255,.35)';c.beginPath();c.ellipse(-r*0.35,-r*0.4,r*0.22,r*0.13,-0.6,0,7);c.fill();
+  c.restore();
+}
+
+/* ---------- touch: drag anywhere, the plane moves with your finger ---------- */
+let drag=null;
+cv.addEventListener('pointerdown',e=>{
+  if(!(state==='play'||state==='ready')||drag)return;
+  drag={id:e.pointerId,x:e.clientX,y:e.clientY};
+  try{cv.setPointerCapture(e.pointerId)}catch(_){}
+  if(state==='ready')$('hint').hidden=true;
+});
+cv.addEventListener('pointermove',e=>{
+  if(!drag||e.pointerId!==drag.id||!plane.alive)return;
+  const dy=e.clientY-drag.y;
+  plane.x+=e.clientX-drag.x;plane.y+=dy;
+  plane.vy=dy;
+  drag.x=e.clientX;drag.y=e.clientY;
+  clampPlane();
+});
+const endDrag=e=>{if(drag&&e.pointerId===drag.id)drag=null};
+cv.addEventListener('pointerup',endDrag);
+cv.addEventListener('pointercancel',endDrag);
+
+/* ---------- hit test ---------- */
+function hits(t){
+  const L=planeLen(),bomb=t.kind==='bomb';
+  /* body circles; for coins the wings count too, for bombs only the body (a bit forgiving) */
+  const pts=[[-L*0.3,0,L*0.17],[0,0,L*0.17],[L*0.3,0,L*0.17]];
+  if(!bomb)pts.push([-L*0.02,-L*0.3,L*0.1],[-L*0.02,L*0.33,L*0.1]);
+  const cos=Math.cos(plane.tilt),sin=Math.sin(plane.tilt);
+  const tr=bomb?t.r*0.75:t.r;
+  return pts.some(([px,py,pr])=>{
+    const x=plane.x+px*cos-py*sin,y=plane.y+px*sin+py*cos;
+    const d=Math.hypot(t.x-x,t.y-y);
+    return d<tr+(bomb?pr*0.85:pr);
+  });
+}
+
+/* ---------- main loop ---------- */
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  update(dt,now/1000);
+  render(now/1000);
+  requestAnimationFrame(frame);
+}
+function update(dt,t){
+  const moving=state==='play'||state==='home'||state==='ready';
+  if(state!=='paused'){
+    for(const c of clouds){c.x-=(moving?speed()*0.25:U*0.2)*dt;if(c.x<-U*2.5){c.x=W+U*Math.random()*2;c.y=topY*0.6+Math.random()*(groundY-topY)*0.7}}
+    if(moving)scroll+=speed()*dt;
+  }
+  if(plane&&state!=='paused'){
+    plane.vy*=0.8;
+    const want=Math.max(-0.35,Math.min(0.35,plane.vy*0.03));
+    plane.tilt+=(want-plane.tilt)*0.2;
+  }
+  if(state==='play'){
+    const wasHard=isHard();
+    elapsed+=dt;
+    showTime();
+    if(!wasHard&&isHard())goHard();
+    if(elapsed>=GAME_SECONDS){timeUp();return}
+    const v=speed();
+    coinTimer-=dt;bombTimer-=dt;
+    if(coinTimer<=0){spawnCoins();coinTimer=0.55+Math.random()*0.45}
+    if(bombTimer<=0){spawnBomb();bombTimer=bombGap()*(0.75+Math.random()*0.5)}
+    for(const th of things){
+      th.x-=v*(th.kind==='bomb'?1.12:1)*dt;
+      th.ph+=dt;
+      th.y=th.wavy?th.y0+Math.sin(th.ph*2.2)*th.amp:th.y0+Math.sin(th.ph*3)*U*0.06;
+      if(th.wavy)th.y=Math.max(topY+th.r,Math.min(groundY-th.r,th.y));
+    }
+    for(const th of things){
+      if(th.gone||!hits(th))continue;
+      if(th.kind==='coin'){th.gone=true;eat(th)}
+      else{boom(th);break}
+    }
+    things=things.filter(th=>!th.gone&&th.x>-th.r*2);
+    /* little puffs behind the plane */
+    if(Math.random()<0.5)bits.push({x:plane.x-planeLen()*0.52,y:plane.y+(Math.random()-0.5)*U*0.1,vx:-U*1.5,vy:0,life:0.5,max:0.5,r:U*0.12,col:'rgba(255,255,255,'});
+  }
+  for(const b of bits){b.x+=b.vx*dt;b.y+=b.vy*dt;b.vy+=(b.g||0)*dt;b.life-=dt}
+  bits=bits.filter(b=>b.life>0);
+  for(const f of floats){f.y-=U*1.2*dt;f.life-=dt}
+  floats=floats.filter(f=>f.life>0);
+  if(shake>0)shake=Math.max(0,shake-dt*2);
+}
+function render(t){
+  ctx.save();
+  if(shake>0)ctx.translate((Math.random()-0.5)*U*0.4*shake,(Math.random()-0.5)*U*0.4*shake);
+  drawSky();
+  for(const th of things){
+    if(th.kind==='coin')drawCoin(ctx,th.x,th.y,th.r,th.n);
+    else drawBomb(ctx,th.x,th.y,th.r,t+th.ph);
+  }
+  for(const b of bits){
+    const a=Math.max(0,b.life/b.max);
+    ctx.fillStyle=b.col+a.toFixed(2)+')';
+    ctx.beginPath();ctx.arc(b.x,b.y,b.r*(b.grow?1+(1-a)*1.5:1),0,7);ctx.fill();
+  }
+  if(plane&&plane.alive){
+    const bob=state==='home'?Math.sin(t*2)*U*0.15:0;
+    drawPlane(ctx,plane.x,plane.y+bob,planeLen(),plane.tilt);
+  }
+  for(const f of floats){
+    ctx.globalAlpha=Math.min(1,f.life*2);
+    ctx.fillStyle='#7A4E00';ctx.strokeStyle='#fff';ctx.lineWidth=5;
+    ctx.font='700 '+Math.round(U*0.8)+'px "Atkinson Hyperlegible",system-ui,sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.strokeText(f.text,f.x,f.y);ctx.fillText(f.text,f.x,f.y);
+    ctx.globalAlpha=1;
+  }
+  if(state==='boom'||state==='over'){
+    const k=Math.min(1,(performance.now()-boomAt)/250);
+    if(k<1){ctx.fillStyle='rgba(255,240,200,'+(0.7*(1-k)).toFixed(2)+')';ctx.fillRect(0,0,W,H)}
+  }
+  ctx.restore();
+}
+
+/* ---------- events in the game ---------- */
+function eat(th){
+  score+=th.n;
+  $('scoreNum').textContent=score;
+  const s=$('score');s.classList.remove('pop');void s.offsetWidth;s.classList.add('pop');
+  sfx.coin(th.n);
+  floats.push({text:'+'+th.n,x:th.x,y:th.y,life:0.9});
+  for(let i=0;i<10;i++){
+    const a=Math.random()*7,v=U*(1+Math.random()*2);
+    bits.push({x:th.x,y:th.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:0.45,max:0.45,r:U*0.08,col:'rgba(255,201,60,'});
+  }
+}
+function boom(th){
+  state='boom';boomAt=performance.now();shake=1;drag=null;
+  plane.alive=false;th.gone=true;
+  sfx.boom();
+  const cx=(plane.x+th.x)/2,cy=(plane.y+th.y)/2;
+  const cols=['rgba(255,122,47,','rgba(255,210,63,','rgba(210,67,63,','rgba(90,106,128,'];
+  for(let i=0;i<60;i++){
+    const a=Math.random()*7,v=U*(1+Math.random()*5);
+    bits.push({x:cx,y:cy,vx:Math.cos(a)*v,vy:Math.sin(a)*v,g:U*3,life:0.8+Math.random()*0.8,max:1.6,r:U*(0.1+Math.random()*0.25),col:cols[i%4],grow:i%4===3});
+  }
+  finish(false,1100);
+}
+function timeUp(){
+  state='boom';drag=null;
+  sfx.start();
+  finish(true,500);
+}
+/* show the result card, then speak; "play again" only works after the voice has finished */
+function finish(timeOver,delay){
+  $('pauseBtn').hidden=true;$('banner').hidden=true;
+  const record=score>best&&score>0;
+  if(record){best=score;saveBest(best)}
+  setTimeout(()=>{
+    state='over';
+    $('overTitle').textContent=record?'破咗紀錄！':timeOver?'時間到！':'中咗炸彈！';
+    $('finalScore').textContent=score;
+    $('overBest').textContent='最高分：'+best;
+    $('againBtn').disabled=true;
+    $('over').hidden=false;
+    let line=timeOver?SAY_TIME(score):SAY_BOOM(score);
+    if(record)line=(timeOver?'時間到！':'嘭！中咗炸彈！')+SAY_RECORD(score);
+    say(line,()=>{$('againBtn').disabled=false});
+  },delay);
+}
+function showTime(){
+  const left=Math.max(0,Math.ceil(GAME_SECONDS-elapsed));
+  $('timeNum').textContent=left;
+  $('timer').classList.toggle('hard',isHard());
+  $('timeBar').style.width=(100*Math.max(0,GAME_SECONDS-elapsed)/GAME_SECONDS)+'%';
+}
+function goHard(){
+  sfx.hard();
+  const b=$('banner');b.hidden=false;b.classList.remove('show');void b.offsetWidth;b.classList.add('show');
+  setTimeout(()=>{b.hidden=true},1600);
+  say(SAY_HARD);
+}
+
+function begin(withInstruction){
+  audio();
+  stopSpeech();
+  score=0;elapsed=0;things=[];bits=[];floats=[];drag=null;
+  coinTimer=0.3;bombTimer=3;   /* no bombs in the first 3 seconds */
+  newPlane();clampPlane();
+  $('scoreNum').textContent='0';
+  showTime();$('banner').hidden=true;
+  $('bestHud').textContent='最高分 '+best;
+  ['home','over','paused'].forEach(id=>$(id).hidden=true);
+  $('hud').hidden=false;$('pauseBtn').hidden=false;$('timer').hidden=false;
+  if(withInstruction){
+    /* coins only start coming after the instruction has been spoken */
+    state='ready';$('hint').hidden=false;
+    say(SAY_START,()=>{if(state!=='ready')return;$('hint').hidden=true;sfx.start();state='play'});
+  }else{
+    sfx.start();state='play';
+  }
+}
+function goHome(){
+  stopSpeech();
+  state='home';things=[];bits=[];floats=[];
+  newPlane();
+  ['over','paused','hud','pauseBtn','hint','timer','banner'].forEach(id=>$(id).hidden=true);
+  $('bestHome').textContent='最高分：'+best;
+  $('home').hidden=false;
+}
+let pausedFrom='play';
+function pause(){
+  if(state!=='play'&&state!=='ready')return;
+  pausedFrom=state;state='paused';drag=null;stopSpeech();$('paused').hidden=false;
+}
+
+$('startBtn').onclick=()=>begin(true);
+$('againBtn').onclick=()=>begin(false);
+$('homeBtn').onclick=goHome;
+$('quitBtn').onclick=goHome;
+$('pauseBtn').onclick=pause;
+$('resumeBtn').onclick=()=>{
+  $('paused').hidden=true;
+  if(pausedFrom==='ready'){state='ready';$('hint').hidden=true;sfx.start();state='play'}
+  else state='play';
+  last=performance.now();
+};
+$('testBtn').onclick=()=>{audio();sfx.coin(3);setTimeout(()=>say('你好！我哋一齊去食金幣啦！'),300)};
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause()});
+
+addEventListener('resize',resize);
+resize();newPlane();makeClouds();
+$('bestHome').textContent='最高分：'+best;
+requestAnimationFrame(frame);
+
+if('serviceWorker' in navigator&&location.protocol==='https:'){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+</script>
+</body>
+</html>
